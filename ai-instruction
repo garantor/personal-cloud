@@ -1,0 +1,1853 @@
+# Personal Cloud Storage
+
+## AI-Executable Product, Architecture and Implementation Specification
+
+### 1. Product Objective
+
+Build a consumer application that turns a user's existing phones, computers and NAS devices into a **personal cloud storage system**.
+
+The user experience must resemble Google Photos/Google Drive:
+
+* Install the mobile app.
+* Create an account.
+* Enable automatic photo/video backup.
+* Connect a computer or other storage device.
+* Photos and videos automatically synchronize.
+* Files are encrypted before leaving the user's device.
+* The user can access files from phone, desktop and web.
+* If the primary phone is lost, the user can recover the account and files.
+* Users can optionally contribute unused storage to other users later.
+* Blockchain is an optional ownership/payment/incentive layer, not a dependency for basic file synchronization.
+
+### Product principle
+
+> **The user should understand "my personal cloud", not "nodes, blockchain, IPFS, encryption keys or storage protocols".**
+
+---
+
+# 2. Product Architecture
+
+Use four layers.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                         USER EXPERIENCE                       │
+│                                                              │
+│ Mobile App │ Desktop App │ Web App                           │
+│ Photos     │ Storage     │ Files / Photos / Recovery         │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+┌──────────────────────────────▼───────────────────────────────┐
+│                       PERSONAL CLOUD                          │
+│                                                              │
+│ Sync Engine │ Encryption │ Metadata │ Device Management      │
+│ Recovery    │ File Index │ Upload Queue │ Download Manager   │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+             ┌─────────────────┼─────────────────┐
+             ▼                 ▼                 ▼
+┌──────────────────┐ ┌──────────────────┐ ┌───────────────────┐
+│ PERSONAL DEVICES │ │ STORAGE NETWORK  │ │ BLOCKCHAIN LAYER  │
+│                  │ │                  │ │                   │
+│ Phone            │ │ Decentralized   │ │ Ownership         │
+│ Laptop           │ │ backup          │ │ Device registry   │
+│ Desktop           │ │                  │ │ Payments          │
+│ NAS              │ │ Filecoin/Storj/ │ │ Storage contracts │
+│ Spare phone      │ │ Sia/etc.        │ │ Rewards           │
+└──────────────────┘ └──────────────────┘ └───────────────────┘
+```
+
+The MVP must work without the blockchain layer.
+
+---
+
+# 3. MVP Scope
+
+Build the following first:
+
+### Mobile
+
+* iOS
+* Android
+* account creation
+* passkey authentication
+* automatic photo backup
+* automatic video backup
+* upload queue
+* upload progress
+* pause/resume
+* Wi-Fi-only option
+* charging-only option
+* background synchronization
+* file browser
+* photo gallery
+* device management
+* recovery setup
+
+### Desktop
+
+* macOS
+* Windows
+* Linux-compatible architecture
+
+Desktop application must:
+
+* register as a storage device
+* expose configurable storage capacity
+* receive encrypted files
+* store encrypted blobs
+* report available capacity
+* report device health
+* automatically resume interrupted transfers
+* run in the background
+* survive application restart
+* never have access to plaintext user files
+
+### Backend
+
+Implement:
+
+* authentication
+* device registry
+* storage-node registry
+* file metadata
+* sync coordination
+* upload/download authorization
+* encrypted object storage metadata
+* recovery metadata
+* health monitoring
+* API
+* WebSocket/event channel
+
+The backend must **never receive plaintext files or encryption keys**.
+
+---
+
+# 4. Recommended Technology Stack
+
+Use TypeScript wherever practical.
+
+### Mobile
+
+```text
+React Native
+TypeScript
+Expo where possible
+Native modules where OS background functionality requires them
+```
+
+Do not force Expo abstractions where native PhotoKit/Android background APIs are required.
+
+### Desktop
+
+Prefer:
+
+```text
+Tauri
+Rust storage engine
+TypeScript UI
+```
+
+Alternative:
+
+```text
+Electron
+Node.js
+```
+
+The storage engine should ultimately be isolated from the UI so it can run as a headless storage service.
+
+### Backend
+
+```text
+Node.js
+TypeScript
+Fastify or NestJS
+PostgreSQL
+Redis
+Object-storage-compatible temporary relay
+WebSocket
+```
+
+### Cryptography
+
+Use established audited libraries.
+
+Do not implement:
+
+* AES
+* ChaCha
+* Shamir
+* HKDF
+* Argon2
+* cryptographic randomness
+
+from scratch.
+
+Use:
+
+```text
+XChaCha20-Poly1305 or AES-256-GCM
+HKDF-SHA-256
+Argon2id
+CSPRNG
+Shamir Secret Sharing
+Ed25519/X25519 where appropriate
+WebAuthn/Passkeys
+```
+
+---
+
+# 5. Core Security Model
+
+The architecture must be **zero-knowledge with respect to file contents**.
+
+The server knows:
+
+```text
+User ID
+Device IDs
+File IDs
+File sizes
+Encrypted metadata required for synchronization
+Storage locations
+Hashes/commitments
+```
+
+The server must not know:
+
+```text
+Plaintext file
+Master encryption key
+File encryption keys
+Recovery secret
+User's decrypted filenames
+Photo contents
+Video contents
+```
+
+---
+
+# 6. Encryption Architecture
+
+Do not use one global encryption key directly for every file.
+
+Use hierarchical encryption.
+
+```text
+                    MASTER KEY
+                        │
+              ┌─────────┴─────────┐
+              │                   │
+        Metadata Key          Key Encryption Key
+                                  │
+                        ┌─────────┼─────────┐
+                        ▼         ▼         ▼
+                    File Key   File Key   File Key
+                        │         │         │
+                        ▼         ▼         ▼
+                      Photo     Video     Document
+```
+
+Generate a random key for every file.
+
+Example:
+
+```text
+file_key = CSPRNG(256 bits)
+
+encrypted_file =
+    XChaCha20Poly1305(
+        file_key,
+        plaintext
+    )
+```
+
+Wrap the file key using a key derived from the user's master key.
+
+Do not derive every file encryption key deterministically from the filename.
+
+---
+
+# 7. File Format
+
+Every stored file should have an encrypted manifest.
+
+Example:
+
+```json
+{
+  "fileId": "uuid",
+  "version": 3,
+  "contentHash": "sha256...",
+  "size": 18492344,
+  "mimeType": "encrypted",
+  "createdAt": "...",
+  "chunks": [
+    {
+      "index": 0,
+      "hash": "...",
+      "size": 4194304
+    }
+  ]
+}
+```
+
+The manifest itself should not expose sensitive metadata unnecessarily.
+
+Where possible, encrypt:
+
+* filename
+* folder
+* album
+* timestamps
+* EXIF metadata
+* location metadata
+* thumbnails
+
+---
+
+# 8. Chunking
+
+Large files must not be treated as one upload.
+
+Default:
+
+```text
+4 MiB chunks
+```
+
+Configurable later.
+
+Example:
+
+```text
+2 GB video
+
+       │
+       ▼
+┌──────┬──────┬──────┬──────┬──────┐
+│  0   │  1   │  2   │ ...  │  511 │
+└──────┴──────┴──────┴──────┴──────┘
+```
+
+Each chunk:
+
+1. Encrypt
+2. Hash
+3. Upload
+4. Verify
+5. Mark durable
+6. Resume independently if interrupted
+
+This is essential for mobile networks.
+
+---
+
+# 9. Automatic Photo/Video Backup
+
+## iOS
+
+Use PhotoKit.
+
+Implement:
+
+```text
+PHPhotoLibrary
+PHAsset
+PHAssetResource
+```
+
+Use Apple's supported background upload mechanisms.
+
+The application should maintain a local database:
+
+```text
+asset_id
+asset_identifier
+file_id
+backup_status
+upload_progress
+retry_count
+last_attempt
+```
+
+States:
+
+```text
+DISCOVERED
+QUEUED
+ENCRYPTING
+UPLOADING
+VERIFYING
+BACKED_UP
+FAILED
+PAUSED
+```
+
+Do not continuously poll the entire photo library.
+
+Use change observation/change tokens to identify newly added or changed assets.
+
+---
+
+# 10. Android Photo/Video Backup
+
+Use Android media APIs and appropriate background scheduling.
+
+Monitor:
+
+```text
+MediaStore
+```
+
+Detect:
+
+* new photos
+* new videos
+* changed media
+* deleted media where applicable
+
+Use a persistent upload queue backed by local storage.
+
+Use Android's supported background scheduling mechanisms.
+
+The application must not depend on an always-running unrestricted background process.
+
+---
+
+# 11. Mobile Sync Flow
+
+When the user takes a picture:
+
+```text
+CAMERA
+  │
+  ▼
+OS PHOTO LIBRARY
+  │
+  ▼
+SYNC DETECTOR
+  │
+  ▼
+LOCAL DATABASE
+  │
+  ▼
+ENCRYPT
+  │
+  ▼
+CHUNK
+  │
+  ▼
+UPLOAD QUEUE
+  │
+  ├───────────────┐
+  ▼               ▼
+PERSONAL PC     BACKUP STORAGE
+  │               │
+  └───────┬───────┘
+          ▼
+      VERIFY
+          │
+          ▼
+     BACKED UP
+```
+
+The user should see:
+
+```text
+✓ 12,431 photos backed up
+
+Backing up:
+VID_20261006_1832.mp4
+72%
+```
+
+---
+
+# 12. Local Storage Node
+
+The desktop application becomes the user's personal storage server.
+
+Example:
+
+```text
+Personal Cloud
+─────────────────────────
+MacBook
+
+Disk:             2 TB
+Allocated:        1 TB
+Used:             438 GB
+Available:        562 GB
+
+Status:           Online
+Last sync:        2 minutes ago
+```
+
+The user should never need to configure:
+
+* port forwarding
+* DNS
+* certificates
+* IP addresses
+* firewall rules
+* blockchain wallets
+
+The application handles this.
+
+---
+
+# 13. Device Connectivity
+
+Use this progression.
+
+### MVP
+
+```text
+Phone
+  │
+  ▼
+Secure backend relay
+  │
+  ▼
+Desktop storage node
+```
+
+The relay only sees ciphertext.
+
+This makes the first implementation reliable.
+
+### V2
+
+Add direct device-to-device transfer:
+
+```text
+Phone
+  │
+  ├── local LAN
+  │
+  └── P2P / NAT traversal
+           │
+           ▼
+       Desktop
+```
+
+Use:
+
+```text
+QUIC
+WebRTC
+libp2p
+or equivalent
+```
+
+The protocol must fall back to relay when direct connectivity fails.
+
+---
+
+# 14. Backend Components
+
+Create these services/modules:
+
+```text
+backend/
+├── auth/
+├── users/
+├── devices/
+├── storage-nodes/
+├── files/
+├── manifests/
+├── sync/
+├── uploads/
+├── downloads/
+├── recovery/
+├── notifications/
+├── health/
+└── billing/
+```
+
+Avoid creating a monolithic storage service.
+
+---
+
+# 15. Database Model
+
+Core entities:
+
+```text
+User
+Device
+StorageNode
+File
+FileVersion
+FileChunk
+StorageLocation
+SyncJob
+RecoveryConfiguration
+RecoveryEvent
+Session
+```
+
+Example:
+
+```text
+User
+ ├── Devices
+ ├── Files
+ ├── StorageNodes
+ └── RecoveryConfiguration
+
+File
+ ├── FileVersions
+ └── StorageLocations
+
+FileVersion
+ └── FileChunks
+
+FileChunk
+ └── StorageLocations
+```
+
+Never store:
+
+```text
+plaintext_file
+master_key
+file_key
+recovery_key
+```
+
+in PostgreSQL.
+
+---
+
+# 16. 2-of-3 Recovery
+
+This is one of the most important parts of the product.
+
+Generate:
+
+```text
+MASTER_KEY
+```
+
+Split it:
+
+```text
+MASTER_KEY
+     │
+     ▼
+Shamir 2-of-3
+     │
+ ┌───┼───┐
+ ▼   ▼   ▼
+ A   B   C
+```
+
+### Share A
+
+Primary device.
+
+Store using:
+
+```text
+iOS Keychain / Secure Enclave
+Android Keystore
+```
+
+### Share B
+
+User recovery credential.
+
+The user receives a human-friendly recovery mechanism.
+
+Do not expose raw Shamir shares unless explicitly requested.
+
+### Share C
+
+Encrypted remote recovery share.
+
+Store remotely.
+
+It is harmless by itself because one share cannot reconstruct the master key.
+
+---
+
+# 17. Recovery Scenarios
+
+### Scenario A — normal
+
+```text
+Primary Device + Remote Share
+             ↓
+       Recover key
+```
+
+### Scenario B — phone lost
+
+```text
+Recovery Credential
+        +
+Remote Share
+        ↓
+Reconstruct Master Key
+        ↓
+Register New Device
+        ↓
+Download encrypted files
+        ↓
+Decrypt locally
+```
+
+### Scenario C — cloud unavailable
+
+```text
+Primary Device
+      +
+Recovery Credential
+      ↓
+Recover account
+```
+
+### Scenario D — primary device and recovery credential lost
+
+```text
+Remote Share only
+      ↓
+Insufficient
+      ↓
+Data remains protected
+```
+
+This is intentional.
+
+---
+
+# 18. Recovery UX
+
+Never show:
+
+> "Enter Shamir share 2."
+
+Show:
+
+```text
+Recover your Personal Cloud
+
+Your old phone is unavailable.
+
+Choose your recovery method:
+
+[ Recovery Code ]
+
+[ Another trusted device ]
+
+[ Hardware recovery key ]
+```
+
+Then:
+
+```text
+Recovery successful.
+
+Your cloud is available on this device.
+
+Restoring:
+4,382 photos
+612 videos
+87 documents
+```
+
+---
+
+# 19. Device Trust
+
+Every device receives a unique cryptographic identity.
+
+```text
+User
+ │
+ ├── iPhone
+ │     └── Device Key
+ │
+ ├── Mac
+ │     └── Device Key
+ │
+ └── Desktop
+       └── Device Key
+```
+
+Device registration requires authenticated authorization.
+
+Allow the user to revoke devices:
+
+```text
+Devices
+
+iPhone 15       Active
+MacBook         Active
+Windows PC      Active
+
+[Revoke Windows PC]
+```
+
+Revocation must prevent future access.
+
+---
+
+# 20. File Sync State Machine
+
+Implement a deterministic state machine.
+
+```text
+DISCOVERED
+    │
+    ▼
+QUEUED
+    │
+    ▼
+ENCRYPTING
+    │
+    ▼
+CHUNKING
+    │
+    ▼
+UPLOADING
+    │
+    ▼
+VERIFYING
+    │
+    ▼
+STORED
+    │
+    ▼
+BACKED_UP
+```
+
+Failure:
+
+```text
+ANY STATE
+   │
+   ▼
+FAILED
+   │
+   ▼
+RETRY
+   │
+   └──────► previous state
+```
+
+Never lose the upload queue because the application restarts.
+
+---
+
+# 21. Deduplication
+
+Implement content-addressed deduplication.
+
+Calculate:
+
+```text
+content_hash
+```
+
+before storing a duplicate.
+
+If the same encrypted content already exists locally, do not upload it again.
+
+Be careful with cross-user deduplication.
+
+For the MVP:
+
+> **Only deduplicate within the same user's encrypted namespace.**
+
+Do not create cross-user information leaks.
+
+---
+
+# 22. File Availability
+
+Every file should have a durability state.
+
+```text
+LOCAL_ONLY
+
+SYNCED_TO_DEVICE
+
+REMOTE_BACKUP
+
+MULTIPLE_REPLICAS
+```
+
+Example:
+
+```text
+IMG_1023.jpg
+
+Phone             ✓
+Mac               ✓
+Remote backup     ✓
+
+Durability:       HIGH
+```
+
+---
+
+# 23. Storage Orchestrator
+
+Create a logical storage abstraction:
+
+```typescript
+interface StorageProvider {
+  put(chunk: EncryptedChunk): Promise<StorageReceipt>;
+  get(id: ChunkId): Promise<EncryptedChunk>;
+  delete(id: ChunkId): Promise<void>;
+  exists(id: ChunkId): Promise<boolean>;
+  health(): Promise<StorageHealth>;
+}
+```
+
+Implement:
+
+```text
+LocalStorageProvider
+PersonalNodeProvider
+RemoteBackupProvider
+```
+
+Later:
+
+```text
+StorjProvider
+FilecoinProvider
+SiaProvider
+IPFSProvider
+```
+
+The rest of the application must not care which provider stores the chunk.
+
+---
+
+# 24. Decentralized Storage Integration
+
+Do not build a new storage blockchain for the MVP.
+
+Create an adapter layer.
+
+```text
+StorageProvider
+       │
+       ├── Personal Node
+       ├── Storj
+       ├── Filecoin
+       ├── Sia
+       └── Other providers
+```
+
+The application encrypts the data first.
+
+The external storage network receives ciphertext.
+
+---
+
+# 25. Blockchain Layer
+
+Implement only after the core storage product works.
+
+Blockchain responsibilities:
+
+```text
+Identity
+Ownership
+Device registry
+Storage commitments
+Storage contracts
+Provider reputation
+Payments
+Rewards
+```
+
+Do not put files on-chain.
+
+Do not make every photo upload require a blockchain transaction.
+
+Possible architecture:
+
+```text
+Personal Cloud
+      │
+      ▼
+Storage Orchestrator
+      │
+      ▼
+Blockchain Adapter
+      │
+      ├── Ethereum
+      ├── Polygon
+      └── L2
+```
+
+Use an abstraction:
+
+```typescript
+interface BlockchainAdapter {
+  registerIdentity(): Promise<void>;
+  registerDevice(): Promise<void>;
+  createStorageContract(): Promise<void>;
+  recordStorageCommitment(): Promise<void>;
+  settlePayment(): Promise<void>;
+}
+```
+
+---
+
+# 26. Storage Marketplace — V2/V3
+
+After personal storage works, allow:
+
+```text
+Unused storage
+      │
+      ▼
+"Make available"
+      │
+      ▼
+Storage marketplace
+      │
+      ▼
+Other users
+      │
+      ▼
+Encrypted chunks
+```
+
+The storage provider never sees plaintext.
+
+Provider receives:
+
+```text
+encrypted data
+storage commitment
+payment/reward
+```
+
+Provider does not receive:
+
+```text
+encryption key
+plaintext
+user password
+```
+
+---
+
+# 27. Storage Provider UX
+
+Desktop:
+
+```text
+PERSONAL CLOUD
+
+Personal storage
+──────────────────
+Used             438 GB
+Reserved         600 GB
+
+Unused capacity
+──────────────────
+Available        400 GB
+
+[ Use for my data ]
+
+[ Rent unused space ]
+```
+
+If renting:
+
+```text
+Storage marketplace
+
+Available:
+400 GB
+
+Bandwidth limit:
+100 GB/month
+
+Keep device online:
+✓
+
+Estimated rewards:
+£X/month
+
+[ Start earning ]
+```
+
+Do not expose blockchain complexity.
+
+---
+
+# 28. Web Application
+
+Web application should support:
+
+```text
+Photos
+Videos
+Files
+Albums
+Devices
+Storage
+Recovery
+Settings
+```
+
+Important:
+
+The web application should not receive plaintext file keys unless the user has authenticated sufficiently to decrypt locally.
+
+Prefer browser-side decryption.
+
+---
+
+# 29. Search
+
+Implement encrypted/local search where practical.
+
+For MVP:
+
+```text
+filename
+type
+date
+device
+album
+```
+
+Do not initially attempt fully searchable encrypted databases.
+
+---
+
+# 30. Thumbnails
+
+Photos/videos should have encrypted thumbnails.
+
+Flow:
+
+```text
+Original
+   │
+   ├── encrypted original
+   │
+   └── encrypted thumbnail
+```
+
+The app can load thumbnails without downloading multi-gigabyte originals.
+
+---
+
+# 31. Video Streaming
+
+Do not download the entire video before playback.
+
+Implement:
+
+```text
+encrypted chunks
+       │
+       ▼
+range/chunk requests
+       │
+       ▼
+local decrypt buffer
+       │
+       ▼
+video player
+```
+
+Start with downloading the complete file if necessary for MVP.
+
+Add encrypted streaming later.
+
+---
+
+# 32. Offline Behaviour
+
+The mobile app must work offline.
+
+When offline:
+
+```text
+New photo
+   ↓
+Local queue
+   ↓
+WAITING_FOR_NETWORK
+```
+
+When network returns:
+
+```text
+WAITING_FOR_NETWORK
+       ↓
+UPLOAD
+```
+
+The user must never lose photos because the app was offline.
+
+---
+
+# 33. Network Policy
+
+Settings:
+
+```text
+Backup automatically             ON
+
+Wi-Fi only                       ON
+Backup while charging            OFF
+Use mobile data                  OFF
+Upload videos                    ON
+Upload screenshots               ON
+```
+
+Allow per-device configuration.
+
+---
+
+# 34. Storage Policy
+
+User can specify:
+
+```text
+Personal storage allocation
+
+MacBook
+[████████░░] 800 GB / 1 TB
+
+Desktop
+[██████░░░░] 2.4 TB / 4 TB
+```
+
+Never consume the entire disk.
+
+Reserve configurable free space:
+
+```text
+Minimum free disk:
+20%
+```
+
+---
+
+# 35. Backend API
+
+Example endpoints:
+
+```text
+POST /v1/auth/register
+POST /v1/auth/passkey/register
+POST /v1/auth/passkey/login
+
+POST /v1/devices
+GET  /v1/devices
+DELETE /v1/devices/:id
+
+POST /v1/files
+GET  /v1/files/:id
+DELETE /v1/files/:id
+
+POST /v1/files/:id/versions
+POST /v1/uploads
+POST /v1/uploads/:id/chunks
+POST /v1/uploads/:id/complete
+
+GET /v1/downloads/:id
+
+POST /v1/storage-nodes
+GET  /v1/storage-nodes
+
+POST /v1/recovery/setup
+POST /v1/recovery/restore
+
+GET /v1/sync/status
+POST /v1/sync/retry
+```
+
+---
+
+# 36. Local Database
+
+Mobile:
+
+```text
+SQLite
+```
+
+Desktop:
+
+```text
+SQLite
+```
+
+Store:
+
+```text
+Asset
+File
+Upload
+Chunk
+Device
+SyncJob
+StorageLocation
+```
+
+The sync queue must survive application termination.
+
+---
+
+# 37. AI Agent Implementation Rules
+
+The coding agent must follow these rules.
+
+### Rule 1
+
+Do not implement cryptography from scratch.
+
+### Rule 2
+
+Do not store plaintext files on the backend.
+
+### Rule 3
+
+Do not store master encryption keys in PostgreSQL.
+
+### Rule 4
+
+Do not make blockchain transactions part of ordinary file upload.
+
+### Rule 5
+
+Do not require port forwarding for users.
+
+### Rule 6
+
+Do not require users to configure servers manually.
+
+### Rule 7
+
+Every upload must be resumable.
+
+### Rule 8
+
+Every encrypted object must be integrity-verifiable.
+
+### Rule 9
+
+Every critical operation must be idempotent.
+
+### Rule 10
+
+Never delete the only copy of a file before another verified copy exists.
+
+---
+
+# 38. Repository Structure
+
+Use a monorepo.
+
+```text
+personal-cloud/
+│
+├── apps/
+│   ├── mobile/
+│   ├── desktop/
+│   └── web/
+│
+├── services/
+│   ├── api/
+│   ├── sync/
+│   └── storage-orchestrator/
+│
+├── packages/
+│   ├── crypto/
+│   ├── protocol/
+│   ├── storage/
+│   ├── sync-engine/
+│   ├── file-manifest/
+│   ├── recovery/
+│   ├── database/
+│   └── blockchain/
+│
+├── infrastructure/
+│   ├── docker/
+│   ├── postgres/
+│   └── redis/
+│
+└── docs/
+    ├── architecture/
+    ├── security/
+    ├── protocols/
+    └── recovery/
+```
+
+---
+
+# 39. Development Phases
+
+## Phase 0 — Architecture
+
+Create:
+
+```text
+architecture.md
+security-model.md
+crypto-design.md
+sync-protocol.md
+recovery-design.md
+storage-provider-interface.md
+```
+
+No production code until these are internally consistent.
+
+---
+
+## Phase 1 — Crypto Core
+
+Implement and test:
+
+```text
+Master key generation
+File key generation
+File encryption
+File decryption
+Chunk encryption
+Manifest encryption
+Hash verification
+Shamir 2-of-3
+Key wrapping
+Recovery reconstruction
+```
+
+Acceptance criterion:
+
+> A file encrypted on device A can only be decrypted by an authorized device possessing the required key material.
+
+---
+
+## Phase 2 — Backend
+
+Implement:
+
+```text
+Auth
+Users
+Devices
+Files
+Chunks
+Upload sessions
+Download sessions
+Storage locations
+Sync state
+```
+
+Acceptance criterion:
+
+> Backend logs, database records and API responses contain no plaintext file content or encryption keys.
+
+---
+
+## Phase 3 — Desktop Storage Node
+
+Implement:
+
+```text
+Install
+Device registration
+Storage allocation
+Encrypted file reception
+Chunk verification
+Resume support
+Disk monitoring
+Health reporting
+Background operation
+```
+
+Acceptance criterion:
+
+> A desktop can become a storage node without manual networking configuration.
+
+---
+
+## Phase 4 — Mobile Photo Backup
+
+Implement:
+
+```text
+Photo discovery
+Video discovery
+Change detection
+Encryption
+Queue
+Background upload
+Retry
+Resume
+Progress
+Deduplication
+```
+
+Acceptance criterion:
+
+> Taking a new photo eventually results in a verified encrypted backup without the user pressing an upload button.
+
+---
+
+## Phase 5 — Multi-device Sync
+
+Implement:
+
+```text
+Phone → Desktop
+Desktop → Phone
+Phone → Phone
+Desktop → Desktop
+```
+
+Use encrypted chunks and manifests.
+
+Acceptance criterion:
+
+> A file created on device A becomes available on authorized device B without exposing plaintext to the backend.
+
+---
+
+## Phase 6 — Recovery
+
+Implement:
+
+```text
+2-of-3 generation
+Recovery setup
+Recovery code
+Remote share
+New-device recovery
+Device revocation
+```
+
+Acceptance criterion:
+
+> Destroy the original phone and successfully recover the account on a new phone using two valid recovery components.
+
+---
+
+## Phase 7 — Web
+
+Implement:
+
+```text
+Login
+Photo gallery
+File browser
+Download
+Device management
+Storage management
+Recovery settings
+```
+
+---
+
+## Phase 8 — Decentralized Storage
+
+Implement provider adapters.
+
+Start with one external provider.
+
+Do not integrate multiple networks simultaneously.
+
+Acceptance criterion:
+
+> User data can be encrypted locally and stored on an external decentralized provider without changing the application storage interface.
+
+---
+
+## Phase 9 — Blockchain
+
+Implement:
+
+```text
+Wallet/account association
+Device registry
+Storage commitment
+Ownership record
+Storage contract
+Payment abstraction
+```
+
+The existing storage application must continue functioning if blockchain connectivity is unavailable.
+
+---
+
+## Phase 10 — Storage Marketplace
+
+Implement:
+
+```text
+Provider onboarding
+Available capacity
+Storage pricing
+Provider health
+Storage contracts
+Proof/verification
+Payments
+Rewards
+Provider reputation
+```
+
+---
+
+# 40. Automated Testing Requirements
+
+### Crypto
+
+Test:
+
+```text
+encrypt/decrypt
+tampered ciphertext
+wrong key
+wrong nonce
+wrong manifest
+chunk reordering
+missing chunks
+duplicate chunks
+Shamir recovery
+invalid shares
+threshold failure
+```
+
+### Sync
+
+Test:
+
+```text
+offline
+online
+network interruption
+app restart
+device restart
+duplicate upload
+partial upload
+large video
+simultaneous uploads
+storage full
+remote node unavailable
+```
+
+### Recovery
+
+Test:
+
+```text
+device + remote
+device + recovery
+remote + recovery
+device only → fail
+remote only → fail
+recovery only → fail
+corrupted share → fail
+revoked device → fail
+```
+
+### Mobile
+
+Test:
+
+```text
+new photo
+new video
+large video
+backgrounding
+screen lock
+network loss
+Wi-Fi → cellular
+cellular → Wi-Fi
+low battery
+low storage
+app restart
+OS restart
+```
+
+---
+
+# 41. End-to-End Acceptance Test
+
+The AI agent must be able to execute this complete scenario.
+
+```text
+1. Install mobile application.
+
+2. Create account using passkey.
+
+3. Configure recovery.
+
+4. Connect desktop.
+
+5. Allocate 500 GB to personal storage.
+
+6. Take photo on phone.
+
+7. Verify photo enters sync queue.
+
+8. Verify photo is encrypted.
+
+9. Verify encrypted chunks reach desktop.
+
+10. Verify desktop stores ciphertext.
+
+11. Verify backend cannot decrypt the file.
+
+12. Verify photo becomes visible on another authorized device.
+
+13. Disconnect desktop.
+
+14. Take another photo.
+
+15. Verify photo remains queued.
+
+16. Reconnect desktop.
+
+17. Verify synchronization resumes automatically.
+
+18. Delete/revoke primary phone.
+
+19. Install application on new phone.
+
+20. Recover account using two recovery components.
+
+21. Verify previously backed-up photos are accessible.
+
+22. Verify revoked phone cannot access new data.
+
+23. Verify encrypted remote backup can restore the account.
+```
+
+The entire sequence must pass before calling the MVP production-ready.
+
+---
+
+# 42. Security Acceptance Criteria
+
+The system is not production-ready until:
+
+* No plaintext file reaches backend storage.
+* No master key reaches backend.
+* No recovery secret is logged.
+* No private key is logged.
+* Device revocation works.
+* File integrity verification works.
+* Uploads are resumable.
+* Recovery works after complete primary-device loss.
+* A single recovery share cannot decrypt the account.
+* A compromised storage node cannot decrypt user files.
+* A compromised relay cannot decrypt user files.
+* File deletion does not occur before confirmed replacement copies where durability requires replication.
+* Cryptographic libraries are pinned and audited where practical.
+* Security-sensitive operations have dedicated tests.
+
+---
+
+# 43. MVP Definition of Done
+
+The first production milestone is complete when an ordinary user can perform this sequence:
+
+```text
+Install App
+     ↓
+Create Account
+     ↓
+Set Recovery
+     ↓
+Connect Computer
+     ↓
+Enable Photo Backup
+     ↓
+Take Photo
+     ↓
+Photo Automatically Syncs
+     ↓
+Computer Stores Encrypted Copy
+     ↓
+Photo Available From Another Device
+     ↓
+Primary Phone Lost
+     ↓
+Install App On New Phone
+     ↓
+Recover Account
+     ↓
+Photos Reappear
+```
+
+The user should never need to know:
+
+```text
+Shamir
+IPFS
+Filecoin
+Storj
+TEE
+Ethereum
+AES
+XChaCha
+QUIC
+NAT traversal
+```
+
+Those are implementation details.
+
+---
+
+# 44. Long-Term Architecture
+
+The final system should evolve into:
+
+```text
+                         PERSONAL CLOUD
+                               │
+                    ┌──────────▼──────────┐
+                    │   USER IDENTITY     │
+                    │ Passkey / Wallet    │
+                    └──────────┬──────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              │                │                │
+              ▼                ▼                ▼
+        Personal Devices   Storage Network   Recovery
+              │                │                │
+       ┌──────┼──────┐    ┌────┼────┐          │
+       │      │      │    │    │    │          │
+      Phone   PC    NAS  Sia Storj Filecoin   2-of-3
+              │
+              ▼
+        Sync Protocol
+              │
+              ▼
+       Encrypted Objects
+              │
+              ▼
+       Blockchain Layer
+              │
+       ┌──────┼──────────┐
+       │      │          │
+    Ownership Payments  Storage
+                       contracts
+```
+
+## Final product principle
+
+The system should make the following statement true:
+
+> **"Your phone takes the photo. Your personal devices store it. The network backs it up. Encryption protects it. Recovery protects you from losing access. Blockchain can provide ownership and economic coordination—but the user never needs to understand any of it."**
+
+The first implementation should therefore **not start with blockchain or decentralized storage**. Start with the **encrypted sync + personal storage node + 2-of-3 recovery protocol**. Those three components establish the core product. Decentralized storage and blockchain can then be added behind stable interfaces without redesigning the application.
