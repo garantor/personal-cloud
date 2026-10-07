@@ -1,0 +1,17 @@
+{
+  "name": "@personal-cloud/sync-engine",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@personal-cloud/crypto": "*",
+    "@personal-cloud/file-manifest": "*",
+    "@personal-cloud/protocol": "*",
+    "@personal-cloud/storage": "*"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx test/sync-engine.test.ts"
+  }
+}

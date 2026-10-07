@@ -1,0 +1,19 @@
+{
+  "name": "@personal-cloud/mobile",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@personal-cloud/crypto": "*",
+    "@personal-cloud/file-manifest": "*",
+    "@personal-cloud/protocol": "*",
+    "@personal-cloud/storage": "*",
+    "@personal-cloud/sync-engine": "*",
+    "@personal-cloud/recovery": "*"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx test/mobile.test.ts"
+  }
+}
