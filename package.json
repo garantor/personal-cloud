@@ -1,0 +1,26 @@
+{
+  "name": "personal-cloud-root",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run --workspaces --if-present build",
+    "test": "node --test packages/**/test/**/*.test.js packages/**/test/**/*.test.ts || npm run test:all",
+    "test:all": "tsx scripts/run-all-tests.ts",
+    "test:e2e": "tsx scripts/e2e-acceptance-test.ts",
+    "start:api": "tsx services/api/src/index.ts",
+    "start:desktop": "tsx apps/desktop/src/index.ts",
+    "dev:web": "npm run --workspace=@personal-cloud/web dev"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite-plugin-node-polyfills": "^0.28.0"
+  }
+}
