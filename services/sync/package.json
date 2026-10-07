@@ -1,0 +1,15 @@
+{
+  "name": "@personal-cloud/sync",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@personal-cloud/protocol": "*",
+    "@personal-cloud/storage": "*",
+    "@personal-cloud/database": "*"
+  },
+  "scripts": {
+    "build": "tsc"
+  }
+}

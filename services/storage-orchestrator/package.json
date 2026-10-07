@@ -1,0 +1,14 @@
+{
+  "name": "@personal-cloud/storage-orchestrator",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@personal-cloud/storage": "*",
+    "@personal-cloud/protocol": "*"
+  },
+  "scripts": {
+    "build": "tsc"
+  }
+}

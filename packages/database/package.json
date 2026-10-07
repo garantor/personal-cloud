@@ -1,0 +1,14 @@
+{
+  "name": "@personal-cloud/database",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@personal-cloud/protocol": "*"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx test/database.test.ts"
+  }
+}

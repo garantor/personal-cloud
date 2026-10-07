@@ -1,0 +1,14 @@
+{
+  "name": "@personal-cloud/file-manifest",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@personal-cloud/crypto": "*"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx test/manifest.test.ts"
+  }
+}
