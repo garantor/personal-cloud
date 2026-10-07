@@ -1,0 +1,17 @@
+{
+  "name": "@personal-cloud/desktop",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@personal-cloud/crypto": "*",
+    "@personal-cloud/protocol": "*",
+    "@personal-cloud/storage": "*"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "test": "tsx test/desktop.test.ts"
+  }
+}
